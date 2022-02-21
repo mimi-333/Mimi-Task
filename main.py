@@ -9,7 +9,7 @@ import mimi_oauth2
 tokens = dotenv_values()
 #print(config)
 
-scopes = "tweet.read tweet.write users.read offline.access"
+scopes = "tweet.read tweet.write users.read"# offline.access"
 auth = mimi_oauth2.Auth(tokens["CLIENT_ID"], tokens["CLIENT_SECRET"], scopes, tokens["REDIRECT_URI"], tokens["PORT"])
 
 if len(sys.argv) == 2 and sys.argv[1] == "--init":

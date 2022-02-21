@@ -27,6 +27,9 @@ class MyHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.state = None
                 self.start_time = None
             
+            def isChanged(self):
+                return (self.PKCE_code or self.state or self.start_time)
+            
             def release(self):
                 return (self.PKCE_code, self.state, self.start_time)
 
@@ -68,7 +71,7 @@ class MyHTTPRequestHandler(BaseHTTPRequestHandler):
         elif mypath.path == "/redirect":
             end_flag = True
             queries = parse_qs(mypath.query)
-            if queries.keys() == {"state", "code"} and len(queries["state"]) == len(queries["code"]) == 1 and queries["state"][0] == temp.state:
+            if queries.keys() == {"state", "code"} and len(queries["state"]) == len(queries["code"]) == 1 and queries["state"][0] == MyHTTPRequestHandler.state:
                 MyHTTPRequestHandler.code = queries["code"][0]
                 message += "ok"
             else:
@@ -83,9 +86,10 @@ class MyHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         if isHEAD == False:
-            MyHTTPRequestHandler.PKCE_code,  \
-                MyHTTPRequestHandler.state,  \
-                    MyHTTPRequestHandler.start_time = temp.release()
+            if temp.isChanged():
+                MyHTTPRequestHandler.PKCE_code,  \
+                    MyHTTPRequestHandler.state,  \
+                        MyHTTPRequestHandler.start_time = temp.release()
             
             self.wfile.write(message.encode("utf-8"))
             if end_flag == True:
@@ -117,7 +121,7 @@ class Auth:
         db.commit()
         db.close()
 
-    def exchange_code_for_tokens(self, code):
+    def exchange_code_for_tokens(self, code, PKCE_code):
         access_token = None
         refresh_token = None
         expiration_date = None
@@ -127,7 +131,7 @@ class Auth:
         payload = {"code": code,
                    "grant_type": "authorization_code",
                    "redirect_uri": self.redirect_uri,
-                   "code_verifier": MyHTTPRequestHandler.PKCE_code}
+                   "code_verifier": PKCE_code}
         r = requests.post("https://api.twitter.com/2/oauth2/token", headers=headers, data=payload)
         
         responses = r.json()
@@ -224,9 +228,10 @@ class Auth:
         httpd.serve_forever()
 
         code = MyHTTPRequestHandler.code
+        PKCE_code = MyHTTPRequestHandler.PKCE_code
         access_token = None
 
-        access_token, refresh_token, expired = self.exchange_code_for_tokens(code)
+        access_token, refresh_token, expired = self.exchange_code_for_tokens(code, PKCE_code)
         if access_token != None:
             expiration_date = datetime.datetime.now() + datetime.timedelta(seconds=expired)
             self.save_tokens(access_token, refresh_token, expiration_date)
