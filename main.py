@@ -9,12 +9,12 @@ import mimi_oauth2
 tokens = dotenv_values()
 #print(config)
 
-scopes = "tweet.read tweet.write users.read"
+scopes = "tweet.read tweet.write users.read offline.access"
 auth = mimi_oauth2.Auth(tokens["CLIENT_ID"], tokens["CLIENT_SECRET"], scopes, tokens["REDIRECT_URI"], tokens["PORT"])
 
 if len(sys.argv) == 2 and sys.argv[1] == "--init":
+    auth.reset()
     auth.get_tokens()
-    print(auth.get_tokens())
 else:
     #payload = {"Aut": "key", }
     #r = requests.get("https://api.twitter.com/2/users//tweets", params=payload)
@@ -30,7 +30,7 @@ else:
 
     token = auth.get_tokens()
     headers = {"Authorization": "Bearer " + token}
-    payload = {"text": "(にゃーん)"}
+    payload = {"text": "にゃーん"}
     r = requests.post("https://api.twitter.com/2/tweets", headers=headers, json=payload)
     print(r.status_code)
     print(r.text)

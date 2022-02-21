@@ -10,25 +10,27 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sqlite3
 
 class MyHTTPRequestHandler(BaseHTTPRequestHandler):
-    client_id = ""  # client_id -> client_id's string
-    scopes = ""     # scopes(don't forget spaces!) -> ex. "offline.access" "tweet.read users.read"
-    redirect_uri = ""
+    client_id = None  # client_id -> client_id's string
+    scopes = None     # scopes(don't forget spaces!) -> ex. "offline.access" "tweet.read users.read"
+    redirect_uri = None
 
-    code = ""
+    code = None
 
-    PKCE_code = ""
-    state = ""
+    PKCE_code = None
+    state = None
     start_time = None
 
     def do_response(self, isHEAD=False):
         class Temp:
-            PKCE_code = None
-            state = None
-            time = None
+            def __init__(self):
+                self.PKCE_code = None
+                self.state = None
+                self.start_time = None
+            
+            def release(self):
+                return (self.PKCE_code, self.state, self.start_time)
 
-        Temp.PKCE_code = MyHTTPRequestHandler.PKCE_code
-        Temp.state = MyHTTPRequestHandler.state
-        Temp.time = MyHTTPRequestHandler.start_time
+        temp = Temp()
 
         end_flag = False
         message = \
@@ -48,26 +50,25 @@ class MyHTTPRequestHandler(BaseHTTPRequestHandler):
                 message += "<h1>Error: Too Many Times</h1>"
                 end_flag = True
             else:
-                MyHTTPRequestHandler.start_time = time.monotonic()
+                temp.start_time = time.monotonic()
 
-                MyHTTPRequestHandler.state = secrets.token_urlsafe(64)
-                MyHTTPRequestHandler.PKCE_code = secrets.token_urlsafe(64)
+                temp.state = secrets.token_urlsafe(64)
+                temp.PKCE_code = secrets.token_urlsafe(64)
                 
                 url = "https://twitter.com/i/oauth2/authorize?"
                 url += "response_type=code"
                 url += "&client_id=" + MyHTTPRequestHandler.client_id
                 url += "&redirect_uri=" + MyHTTPRequestHandler.redirect_uri
                 url += "&scope=" + quote(MyHTTPRequestHandler.scopes)
-                url += "&state=" + MyHTTPRequestHandler.state
-                url += "&code_challenge=" + base64.urlsafe_b64encode(hashlib.sha256(MyHTTPRequestHandler.PKCE_code.encode("utf-8")).digest()).decode("utf-8").rstrip("=")
+                url += "&state=" + temp.state
+                url += "&code_challenge=" + base64.urlsafe_b64encode(hashlib.sha256(temp.PKCE_code.encode("utf-8")).digest()).decode("utf-8").rstrip("=")
                 url += "&code_challenge_method=S256"
 
                 message += "<a href=\"" + url + "\">Login(redirect to Twitter)</a>"
         elif mypath.path == "/redirect":
             end_flag = True
             queries = parse_qs(mypath.query)
-            print(queries)
-            if queries.keys() == {"state", "code"} and len(queries["state"]) == len(queries["code"]) == 1 and queries["state"][0] == MyHTTPRequestHandler.state:
+            if queries.keys() == {"state", "code"} and len(queries["state"]) == len(queries["code"]) == 1 and queries["state"][0] == temp.state:
                 MyHTTPRequestHandler.code = queries["code"][0]
                 message += "ok"
             else:
@@ -82,14 +83,14 @@ class MyHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         if isHEAD == False:
+            MyHTTPRequestHandler.PKCE_code,  \
+                MyHTTPRequestHandler.state,  \
+                    MyHTTPRequestHandler.start_time = temp.release()
+            
             self.wfile.write(message.encode("utf-8"))
             if end_flag == True:
                 th = Thread(target=self.server.shutdown)
-                th.start()
-        else:
-            MyHTTPRequestHandler.PKCE_code = Temp.PKCE_code
-            MyHTTPRequestHandler.state = Temp.state
-            MyHTTPRequestHandler.start_time = Temp.time
+                th.start()            
 
     def do_GET(self):
         self.do_response(False)
@@ -108,6 +109,14 @@ class Auth:
         self.port = int(port)
         self.basic_header = base64.b64encode((client_id + ":" + client_secret).encode("utf-8")).decode("utf-8")
     
+    def reset(self):
+        db = sqlite3.connect("auth.db")
+        cur = db.cursor()
+        cur.execute("DROP TABLE IF EXISTS tokens")
+        cur.close()
+        db.commit()
+        db.close()
+
     def exchange_code_for_tokens(self, code):
         access_token = None
         refresh_token = None
